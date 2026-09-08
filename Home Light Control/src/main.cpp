@@ -2,7 +2,7 @@
 #include <NimBLEDevice.h>
 
 // Replace with your Govee Light Strip's MAC Address
-#define GOVEE_MAC "AA:BB:CC:DD:EE:FF" 
+#define GOVEE_MAC "0A:0B:0C:0D:19:10" // Example MAC address, replace with your actual device's MAC
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");

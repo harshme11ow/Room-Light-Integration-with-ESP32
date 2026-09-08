@@ -1,0 +1,49 @@
+#include <Arduino.h>
+#include <NimBLEDevice.h>
+
+// Scan duration in seconds
+#define SCAN_TIME 5 
+
+void scanCompleteCB(NimBLEScanResults results) {
+    Serial.println("Scan complete!");
+    int count = results.getCount();
+    Serial.printf("Found %d devices:\n", count);
+    
+    for (int i = 0; i < count; i++) {
+        NimBLEAdvertisedDevice device = results.getDevice(i);
+        std::string name = device.haveName() ? device.getName() : "Unknown";
+        std::string address = device.getAddress().toString();
+        int rssi = device.getRSSI();
+        
+        Serial.printf("[%d] Name: %s | MAC: %s | RSSI: %d\n", i + 1, name.c_str(), address.c_str(), rssi);
+        
+        // Highlight potential Govee devices
+        if (name.find("Govee") != std::string::npos || name.find("ihoment") != std::string::npos) {
+            Serial.println("  ---> MATCH FOUND! This looks like your Govee device.");
+        }
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+    
+    Serial.println("Initializing BLE Scanner...");
+    NimBLEDevice::init("");
+    
+    NimBLEScan* pBLEScan = NimBLEDevice::getScan();
+    pBLEScan->setActiveScan(true); // Active scan helps pull device names
+    pBLEScan->setInterval(97);
+    pBLEScan->setWindow(37);
+    
+    Serial.println("Starting BLE scan for 5 seconds...");
+    // Start scan asynchronously, or use start(SCAN_TIME, false) for blocking
+    NimBLEScanResults results = pBLEScan->start(SCAN_TIME, false);
+    
+    scanCompleteCB(results);
+}
+
+void loop() {
+    // Nothing to do here for a one-time scan
+    delay(1000);
+}
