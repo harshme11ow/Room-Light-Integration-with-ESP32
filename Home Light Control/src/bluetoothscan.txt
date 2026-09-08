@@ -47,3 +47,6 @@ void loop() {
     // Nothing to do here for a one-time scan
     delay(1000);
 }
+
+// [9] Name: Govee_H6056_6619 | MAC: e1:de:81:46:66:19 | RSSI: -47
+//[1] Name: Govee_H617A_0D46 | MAC: d3:21:c6:46:0d:46 | RSSI: -44
