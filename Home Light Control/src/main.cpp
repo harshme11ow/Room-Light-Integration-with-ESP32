@@ -21,7 +21,7 @@ const char* tuyaDeviceID = "ebf9fa6de05d0ece56ecfw";
 const char* tuyaLocalKey = "6n~O6wS-Hzk+sPyj";
 
 // --- Button Configuration ---
-#define BUTTON_PIN 37
+#define BUTTON_PIN 4
 bool globalState = false; 
 bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
