@@ -12,7 +12,7 @@ const char* password = "recentnews374";
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -57,7 +57,7 @@ bool globalState2 = false; bool button2State = HIGH; bool lastBtn2 = HIGH; unsig
 bool sceneState   = false; bool button3State = HIGH; bool lastBtn3 = HIGH; unsigned long debounceTime3 = 0;
 
 // =========================================================================
-// CORE PRIMITIVES (Handles encryption and radio delivery automatically)
+// CORE PRIMITIVES
 // =========================================================================
 uint32_t getTuyaCRC(const uint8_t *data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
@@ -71,7 +71,6 @@ uint32_t getTuyaCRC(const uint8_t *data, size_t length) {
     return ~crc;
 }
 
-// Base function for all Tuya TCP Data
 bool sendTuyaPayload(IPAddress ip, const char* devId, const char* localKey, String dpsJson) {
     WiFiClient client;
     client.setTimeout(1); 
@@ -118,7 +117,6 @@ bool sendTuyaPayload(IPAddress ip, const char* devId, const char* localKey, Stri
     return true;
 }
 
-// Base function for all Govee BLE Data
 bool sendGoveeBLE(const char* macAddress, uint8_t* payload, size_t length) {
     BLEAddress goveeAddress(macAddress, 1);
     NimBLEClient* pClient = NimBLEDevice::createClient();
@@ -164,8 +162,20 @@ bool setGoveeColor(const char* mac, uint8_t r, uint8_t g, uint8_t b) {
     uint8_t packet[20] = {0x33, 0x05, 0x02, r, g, b, 0x00, 0xFF, 0,0,0,0,0,0,0,0,0,0,0,0};
     uint8_t checksum = 0;
     for(int i = 0; i < 19; i++) checksum ^= packet[i];
-    packet[19] = checksum; // Calculate Govee XOR Checksum dynamically
+    packet[19] = checksum;
     return sendGoveeBLE(mac, packet, 20);
+}
+
+// =========================================================================
+// FAILURE LED HELPER
+// =========================================================================
+void flashFailure() {
+    for (int i = 0; i < 10; i++) {
+        digitalWrite(STATUS_LED_PIN, HIGH);
+        delay(75);
+        digitalWrite(STATUS_LED_PIN, LOW);
+        delay(75);
+    }
 }
 
 // =========================================================================
@@ -178,7 +188,7 @@ void setup() {
     pinMode(BUTTON_3_PIN, INPUT_PULLUP);
     pinMode(STATUS_LED_PIN, OUTPUT);
     
-    digitalWrite(STATUS_LED_PIN, LOW); // Start with LED off
+    digitalWrite(STATUS_LED_PIN, LOW);
     
     Serial.print("Connecting to Wi-Fi");
     WiFi.begin(ssid, password);
@@ -187,7 +197,7 @@ void setup() {
     }
     Serial.println("\nWi-Fi Connected!");
 
-    // --- Wi-Fi Success Sequence: Blink Red LED 3 Times ---
+    // Wi-Fi Success Sequence: Blink 3 Times
     for (int i = 0; i < 3; i++) {
         digitalWrite(STATUS_LED_PIN, HIGH);
         delay(200);
@@ -211,6 +221,7 @@ void loop() {
         button1State = reading1;
         if (button1State == LOW && !isExecuting) {
             isExecuting = true;
+            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
             globalState1 = !globalState1;
             Serial.printf("\n--- B1 PRESSED: %s ---\n", globalState1 ? "ON" : "OFF");
             
@@ -222,11 +233,20 @@ void loop() {
             int retries = 0;
             while ((!p1 || !p2 || !s1 || !s2) && retries < 25) {
                 retries++;
+                Serial.printf("\n--- RETRY SWEEP %d ---\n", retries);
                 if (!p1) p1 = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1);
                 if (!p2) p2 = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1);
                 if (!s1) s1 = toggleGovee(GOVEE_STRIP_MAC, globalState1);
                 if (!s2) s2 = toggleGovee(GOVEE_BARS_MAC, globalState1);
                 if (!p1 || !p2 || !s1 || !s2) delay(500); 
+            }
+
+            if (!p1 || !p2 || !s1 || !s2) {
+                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
+                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
+            } else {
+                Serial.println("--- TRANSMISSION COMPLETE ---");
+                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
             }
             isExecuting = false;
         }
@@ -242,6 +262,7 @@ void loop() {
         button2State = reading2;
         if (button2State == LOW && !isExecuting) {
             isExecuting = true;
+            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
             globalState2 = !globalState2;
             Serial.printf("\n--- B2 PRESSED: %s ---\n", globalState2 ? "ON" : "OFF");
             
@@ -252,10 +273,19 @@ void loop() {
             int retries = 0;
             while ((!b1 || !b2 || !b3) && retries < 25) {
                 retries++;
+                Serial.printf("\n--- BULB RETRY SWEEP %d ---\n", retries);
                 if (!b1) b1 = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2);
                 if (!b2) b2 = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2);
                 if (!b3) b3 = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2);
                 if (!b1 || !b2 || !b3) delay(500); 
+            }
+
+            if (!b1 || !b2 || !b3) {
+                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
+                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
+            } else {
+                Serial.println("--- TRANSMISSION COMPLETE ---");
+                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
             }
             isExecuting = false;
         }
@@ -271,15 +301,13 @@ void loop() {
         button3State = reading3;
         if (button3State == LOW && !isExecuting) {
             isExecuting = true;
-            sceneState = !sceneState; // Toggle between Warm White (Work) and Deep Blue (Ambient)
+            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
+            sceneState = !sceneState; 
             Serial.printf("\n--- B3 PRESSED: %s ---\n", sceneState ? "WORK MODE" : "AMBIENT MODE");
             
-            // Tuya Scene Payloads: Forces power ON (DP 20) while applying Color Mode (DP 21)
-            // Warm White: Temp 0, Bright 1000.  Deep Blue: Hue 240 (00F0), Sat 1000, Val 1000
             String tuyaScene = sceneState ? "\"20\":true,\"21\":\"white\",\"22\":1000,\"23\":0" 
                                           : "\"20\":true,\"21\":\"colour\",\"24\":\"00F003e803e8\"";
             
-            // Govee RGB Conversions
             uint8_t r = sceneState ? 255 : 0;
             uint8_t g = sceneState ? 214 : 0;
             uint8_t b = sceneState ? 170 : 255;
@@ -293,12 +321,21 @@ void loop() {
             int retries = 0;
             while ((!c1 || !c2 || !c3 || !c4 || !c5) && retries < 25) {
                 retries++;
+                Serial.printf("\n--- SCENE RETRY SWEEP %d ---\n", retries);
                 if (!c1) c1 = setTuyaBulbColor(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, tuyaScene);
                 if (!c2) c2 = setTuyaBulbColor(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, tuyaScene);
                 if (!c3) c3 = setTuyaBulbColor(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, tuyaScene);
                 if (!c4) c4 = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);
                 if (!c5) c5 = setGoveeColor(GOVEE_BARS_MAC, r, g, b);
                 if (!c1 || !c2 || !c3 || !c4 || !c5) delay(500); 
+            }
+
+            if (!c1 || !c2 || !c3 || !c4 || !c5) {
+                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
+                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
+            } else {
+                Serial.println("--- TRANSMISSION COMPLETE ---");
+                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
             }
             isExecuting = false;
         }
