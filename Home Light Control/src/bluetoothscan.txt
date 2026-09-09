@@ -48,12 +48,16 @@ void loop() {
     delay(1000);
 }
 
-// [9] Name: Govee_H6056_6619 | MAC: e1:de:81:46:66:19 | RSSI: -47
-//[1] Name: Govee_H617A_0D46 | MAC: d3:21:c6:46:0d:46 | RSSI: -44
 
 
+// --- Wi-Fi Credentials ---
 const char* ssid = "MySpectrumWiFi02-2G";
 const char* password = "recentnews374";
 
-// --- Govee BLE Credentials ---
-#define GOVEE_MAC "d3:21:c6:46:0d:46" 
+// --- Govee BLE MAC Addresses ---
+#define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
+#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" // <--- Replace with your Lightbars' MAC
+
+static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
+static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
+
