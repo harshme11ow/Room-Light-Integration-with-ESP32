@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
+#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -407,3 +407,5 @@ void loop() {
         }
     }
 }
+
+
