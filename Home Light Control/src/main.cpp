@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -51,8 +51,8 @@ const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft";
 const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
 
 IPAddress tuyaBulbIP4(192, 168, 1, 37);
-const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; // <--- REPLACE THIS
-const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; // <--- REPLACE THIS
+const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; 
+const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; 
 
 // --- Hardware Button Configuration ---
 #define BUTTON_1_PIN 4   
@@ -62,14 +62,18 @@ const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; // <--- REPLACE THIS
 
 const unsigned long debounceDelay = 50;
 
+// Button 1 States & Queue (Now includes all 4 bulbs)
 bool globalState1 = false; bool btn1State = HIGH; bool lastBtn1 = HIGH; unsigned long dbTime1 = 0;
 bool b1_p1_ok = true, b1_p2_ok = true, b1_s1_ok = true, b1_s2_ok = true;
+bool b1_b1_ok = true, b1_b2_ok = true, b1_b3_ok = true, b1_b4_ok = true;
 int b1_retries = 25; unsigned long b1_lastRetry = 0;
 
+// Button 2 States & Queue
 bool globalState2 = false; bool btn2State = HIGH; bool lastBtn2 = HIGH; unsigned long dbTime2 = 0;
 bool b2_b1_ok = true, b2_b2_ok = true, b2_b3_ok = true, b2_b4_ok = true;
 int b2_retries = 25; unsigned long b2_lastRetry = 0;
 
+// Button 3 States & Queue
 bool sceneState = false; bool btn3State = HIGH; bool lastBtn3 = HIGH; unsigned long dbTime3 = 0;
 bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true, b3_c6_ok = true;
 int b3_retries = 25; unsigned long b3_lastRetry = 0;
@@ -88,9 +92,7 @@ void updateOLED(String title, String line1, String line2, bool isIdle = false) {
     display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
     display.setTextSize(1);
     
-    // Center the Title Text inside the Header
-    int16_t x1, y1;
-    uint16_t w, h;
+    int16_t x1, y1; uint16_t w, h;
     display.getTextBounds(title, 0, 0, &x1, &y1, &w, &h);
     display.setTextColor(SSD1306_BLACK);
     display.setCursor((128 - w) / 2, 3);
@@ -236,7 +238,7 @@ void setup() {
     
     // Initialize OLED Display
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-        Serial.println(F("SSD1306 OLED allocation failed. Running headless."));
+        Serial.println(F("SSD1306 OLED allocation failed."));
     }
     updateOLED("BOOT SEQUENCE", "Connecting Wi-Fi...", "");
 
@@ -252,7 +254,6 @@ void setup() {
 
     NimBLEDevice::init("");
     
-    // Go to Idle Dashboard
     updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
     lastOLEDUpdate = 0;
 }
@@ -263,44 +264,53 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
     
-    // 15-Second Idle Timeout to clear the screen
     if (currentMillis - lastOLEDUpdate > 15000 && lastOLEDUpdate != 0) {
         updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
         lastOLEDUpdate = 0; 
     }
 
-    // --- BUTTON 1 TRIGGER (Plugs & Govee) ---
+    // --- BUTTON 1 TRIGGER (Master Control) ---
     bool reading1 = digitalRead(BUTTON_1_PIN);
     if (reading1 != lastBtn1) dbTime1 = currentMillis;
     if ((currentMillis - dbTime1) > debounceDelay && reading1 != btn1State) {
         btn1State = reading1;
         if (btn1State == LOW) {
             globalState1 = !globalState1;
+            globalState2 = globalState1; // Sync Button 2 so bulbs don't double-toggle
+            
             b1_p1_ok = b1_p2_ok = b1_s1_ok = b1_s2_ok = false;
+            b1_b1_ok = b1_b2_ok = b1_b3_ok = b1_b4_ok = false;
             b1_retries = 0; b1_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
             
-            updateOLED("PLUGS & STRIPS", "Target: " + String(globalState1 ? "ON" : "OFF"), "Transmitting...");
+            updateOLED("MASTER CONTROL", "Target: " + String(globalState1 ? "ON" : "OFF"), "Transmitting...");
         }
     }
     lastBtn1 = reading1;
 
     // --- BUTTON 1 BACKGROUND QUEUE ---
-    if ((!b1_p1_ok || !b1_p2_ok || !b1_s1_ok || !b1_s2_ok) && b1_retries < 25) {
+    if ((!b1_p1_ok || !b1_p2_ok || !b1_s1_ok || !b1_s2_ok || !b1_b1_ok || !b1_b2_ok || !b1_b3_ok || !b1_b4_ok) && b1_retries < 25) {
         if (currentMillis - b1_lastRetry >= 500) {
             b1_lastRetry = currentMillis;
             b1_retries++;
             
-            if (b1_retries > 1) updateOLED("PLUGS & STRIPS", "Network degraded.", "Retry Sweep: " + String(b1_retries));
+            if (b1_retries > 1) updateOLED("MASTER CONTROL", "Network degraded.", "Retry Sweep: " + String(b1_retries));
             
             if (!b1_p1_ok) { b1_p1_ok = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1); if (b1_p1_ok) delay(CASCADE_DELAY); }
             if (!b1_p2_ok) { b1_p2_ok = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1); if (b1_p2_ok) delay(CASCADE_DELAY); }
+            
+            // Newly added Bulb Commands for Button 1
+            if (!b1_b1_ok) { b1_b1_ok = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState1); if (b1_b1_ok) delay(CASCADE_DELAY); }
+            if (!b1_b2_ok) { b1_b2_ok = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState1); if (b1_b2_ok) delay(CASCADE_DELAY); }
+            if (!b1_b3_ok) { b1_b3_ok = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState1); if (b1_b3_ok) delay(CASCADE_DELAY); }
+            if (!b1_b4_ok) { b1_b4_ok = toggleTuyaBulb(tuyaBulbIP4, tuyaBulbID4, tuyaBulbKey4, globalState1); if (b1_b4_ok) delay(CASCADE_DELAY); }
+
             if (!b1_s1_ok) { b1_s1_ok = toggleGovee(GOVEE_STRIP_MAC, globalState1); if (b1_s1_ok) delay(CASCADE_DELAY); }
             if (!b1_s2_ok) { b1_s2_ok = toggleGovee(GOVEE_BARS_MAC, globalState1); if (b1_s2_ok) delay(CASCADE_DELAY); }
 
-            if (b1_p1_ok && b1_p2_ok && b1_s1_ok && b1_s2_ok) {
+            if (b1_p1_ok && b1_p2_ok && b1_s1_ok && b1_s2_ok && b1_b1_ok && b1_b2_ok && b1_b3_ok && b1_b4_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
-                updateOLED("PLUGS & STRIPS", "TX Complete!", "Status: " + String(globalState1 ? "ON" : "OFF"));
+                updateOLED("MASTER CONTROL", "TX Complete!", "Status: " + String(globalState1 ? "ON" : "OFF"));
             } else if (b1_retries >= 25) {
                 flashFailure();
                 updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
@@ -308,7 +318,7 @@ void loop() {
         }
     }
 
-    // --- BUTTON 2 TRIGGER (Bulbs) ---
+    // --- BUTTON 2 TRIGGER (Bulbs Only) ---
     bool reading2 = digitalRead(BUTTON_2_PIN);
     if (reading2 != lastBtn2) dbTime2 = currentMillis;
     if ((currentMillis - dbTime2) > debounceDelay && reading2 != btn2State) {
