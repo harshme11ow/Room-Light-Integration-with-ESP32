@@ -8,7 +8,7 @@ const char* ssid = "MySpectrumWiFi02-2G";
 const char* password = "recentnews374";
 
 // --- Status LED ---
-#define STATUS_LED_PIN 2 // Default onboard LED for ESP32 DevKit V1
+#define STATUS_LED_PIN 2 // Default onboard LED for ESP32
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
@@ -45,16 +45,26 @@ const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
 // --- Hardware Button Configuration ---
 #define BUTTON_1_PIN 4   // Plugs & Govee ON/OFF
 #define BUTTON_2_PIN 5   // Smart Bulbs ON/OFF
-#define BUTTON_3_PIN 18  // Scene Controller (Color Override)
+#define BUTTON_3_PIN 18  // Scene Controller
 #define CASCADE_DELAY 300 
 
-bool isExecuting = false; 
 const unsigned long debounceDelay = 50;
 
-// Button States
-bool globalState1 = false; bool button1State = HIGH; bool lastBtn1 = HIGH; unsigned long debounceTime1 = 0;
-bool globalState2 = false; bool button2State = HIGH; bool lastBtn2 = HIGH; unsigned long debounceTime2 = 0;
-bool sceneState   = false; bool button3State = HIGH; bool lastBtn3 = HIGH; unsigned long debounceTime3 = 0;
+// Button 1 States & Queue
+bool globalState1 = false; bool btn1State = HIGH; bool lastBtn1 = HIGH; unsigned long dbTime1 = 0;
+bool b1_p1_ok = true, b1_p2_ok = true, b1_s1_ok = true, b1_s2_ok = true;
+int b1_retries = 25; unsigned long b1_lastRetry = 0;
+
+// Button 2 States & Queue
+bool globalState2 = false; bool btn2State = HIGH; bool lastBtn2 = HIGH; unsigned long dbTime2 = 0;
+bool b2_b1_ok = true, b2_b2_ok = true, b2_b3_ok = true;
+int b2_retries = 25; unsigned long b2_lastRetry = 0;
+
+// Button 3 States & Queue
+bool sceneState = false; bool btn3State = HIGH; bool lastBtn3 = HIGH; unsigned long dbTime3 = 0;
+bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true;
+int b3_retries = 25; unsigned long b3_lastRetry = 0;
+
 
 // =========================================================================
 // CORE PRIMITIVES
@@ -179,7 +189,7 @@ void flashFailure() {
 }
 
 // =========================================================================
-// SETUP & LOOP
+// SETUP
 // =========================================================================
 void setup() {
     Serial.begin(115200);
@@ -187,158 +197,142 @@ void setup() {
     pinMode(BUTTON_2_PIN, INPUT_PULLUP);
     pinMode(BUTTON_3_PIN, INPUT_PULLUP);
     pinMode(STATUS_LED_PIN, OUTPUT);
-    
     digitalWrite(STATUS_LED_PIN, LOW);
     
     Serial.print("Connecting to Wi-Fi");
     WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500); Serial.print(".");
-    }
+    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
     Serial.println("\nWi-Fi Connected!");
 
-    // Wi-Fi Success Sequence: Blink 3 Times
     for (int i = 0; i < 3; i++) {
-        digitalWrite(STATUS_LED_PIN, HIGH);
-        delay(200);
-        digitalWrite(STATUS_LED_PIN, LOW);
-        delay(200);
+        digitalWrite(STATUS_LED_PIN, HIGH); delay(200);
+        digitalWrite(STATUS_LED_PIN, LOW); delay(200);
     }
 
     NimBLEDevice::init("");
     Serial.println("ESP32 Ready. Press buttons to trigger lights.");
 }
 
+// =========================================================================
+// MAIN LOOP (Non-Blocking)
+// =========================================================================
 void loop() {
     unsigned long currentMillis = millis();
     
-    // ==========================================
-    // BUTTON 1 LOGIC (Plugs & Govee)
-    // ==========================================
+    // --- BUTTON 1 TRIGGER (Plugs & Govee) ---
     bool reading1 = digitalRead(BUTTON_1_PIN);
-    if (reading1 != lastBtn1) debounceTime1 = currentMillis;
-    if ((currentMillis - debounceTime1) > debounceDelay && reading1 != button1State) {
-        button1State = reading1;
-        if (button1State == LOW && !isExecuting) {
-            isExecuting = true;
-            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
+    if (reading1 != lastBtn1) dbTime1 = currentMillis;
+    if ((currentMillis - dbTime1) > debounceDelay && reading1 != btn1State) {
+        btn1State = reading1;
+        if (btn1State == LOW) {
             globalState1 = !globalState1;
-            Serial.printf("\n--- B1 PRESSED: %s ---\n", globalState1 ? "ON" : "OFF");
+            Serial.printf("\n--- B1 Tapped: Forcing %s ---\n", globalState1 ? "ON" : "OFF");
             
-            bool p1 = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1); if(p1) delay(CASCADE_DELAY);
-            bool p2 = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1); if(p2) delay(CASCADE_DELAY);
-            bool s1 = toggleGovee(GOVEE_STRIP_MAC, globalState1); if(s1) delay(CASCADE_DELAY);
-            bool s2 = toggleGovee(GOVEE_BARS_MAC, globalState1);  if(s2) delay(CASCADE_DELAY);
-            
-            int retries = 0;
-            while ((!p1 || !p2 || !s1 || !s2) && retries < 25) {
-                retries++;
-                Serial.printf("\n--- RETRY SWEEP %d ---\n", retries);
-                if (!p1) p1 = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1);
-                if (!p2) p2 = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1);
-                if (!s1) s1 = toggleGovee(GOVEE_STRIP_MAC, globalState1);
-                if (!s2) s2 = toggleGovee(GOVEE_BARS_MAC, globalState1);
-                if (!p1 || !p2 || !s1 || !s2) delay(500); 
-            }
-
-            if (!p1 || !p2 || !s1 || !s2) {
-                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
-                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
-            } else {
-                Serial.println("--- TRANSMISSION COMPLETE ---");
-                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
-            }
-            isExecuting = false;
+            // Instantly abort any active retries and reset the queue
+            b1_p1_ok = b1_p2_ok = b1_s1_ok = b1_s2_ok = false;
+            b1_retries = 0;
+            b1_lastRetry = 0; // Forces immediate execution on next tick
+            digitalWrite(STATUS_LED_PIN, HIGH);
         }
     }
     lastBtn1 = reading1;
 
-    // ==========================================
-    // BUTTON 2 LOGIC (Smart Bulbs ON/OFF)
-    // ==========================================
-    bool reading2 = digitalRead(BUTTON_2_PIN);
-    if (reading2 != lastBtn2) debounceTime2 = currentMillis;
-    if ((currentMillis - debounceTime2) > debounceDelay && reading2 != button2State) {
-        button2State = reading2;
-        if (button2State == LOW && !isExecuting) {
-            isExecuting = true;
-            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
-            globalState2 = !globalState2;
-            Serial.printf("\n--- B2 PRESSED: %s ---\n", globalState2 ? "ON" : "OFF");
+    // --- BUTTON 1 BACKGROUND QUEUE ---
+    if ((!b1_p1_ok || !b1_p2_ok || !b1_s1_ok || !b1_s2_ok) && b1_retries < 25) {
+        if (currentMillis - b1_lastRetry >= 500) {
+            b1_lastRetry = currentMillis;
+            b1_retries++;
             
-            bool b1 = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2); if(b1) delay(CASCADE_DELAY);
-            bool b2 = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2); if(b2) delay(CASCADE_DELAY);
-            bool b3 = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2); if(b3) delay(CASCADE_DELAY);
-            
-            int retries = 0;
-            while ((!b1 || !b2 || !b3) && retries < 25) {
-                retries++;
-                Serial.printf("\n--- BULB RETRY SWEEP %d ---\n", retries);
-                if (!b1) b1 = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2);
-                if (!b2) b2 = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2);
-                if (!b3) b3 = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2);
-                if (!b1 || !b2 || !b3) delay(500); 
-            }
+            if (!b1_p1_ok) { b1_p1_ok = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1); if (b1_p1_ok) delay(CASCADE_DELAY); }
+            if (!b1_p2_ok) { b1_p2_ok = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1); if (b1_p2_ok) delay(CASCADE_DELAY); }
+            if (!b1_s1_ok) { b1_s1_ok = toggleGovee(GOVEE_STRIP_MAC, globalState1); if (b1_s1_ok) delay(CASCADE_DELAY); }
+            if (!b1_s2_ok) { b1_s2_ok = toggleGovee(GOVEE_BARS_MAC, globalState1); if (b1_s2_ok) delay(CASCADE_DELAY); }
 
-            if (!b1 || !b2 || !b3) {
-                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
-                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
-            } else {
-                Serial.println("--- TRANSMISSION COMPLETE ---");
-                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
+            if (b1_p1_ok && b1_p2_ok && b1_s1_ok && b1_s2_ok) {
+                digitalWrite(STATUS_LED_PIN, LOW); // Success
+            } else if (b1_retries >= 25) {
+                flashFailure(); // Failed completely
             }
-            isExecuting = false;
+        }
+    }
+
+
+    // --- BUTTON 2 TRIGGER (Bulbs) ---
+    bool reading2 = digitalRead(BUTTON_2_PIN);
+    if (reading2 != lastBtn2) dbTime2 = currentMillis;
+    if ((currentMillis - dbTime2) > debounceDelay && reading2 != btn2State) {
+        btn2State = reading2;
+        if (btn2State == LOW) {
+            globalState2 = !globalState2;
+            Serial.printf("\n--- B2 Tapped: Forcing %s ---\n", globalState2 ? "ON" : "OFF");
+            
+            b2_b1_ok = b2_b2_ok = b2_b3_ok = false;
+            b2_retries = 0;
+            b2_lastRetry = 0;
+            digitalWrite(STATUS_LED_PIN, HIGH);
         }
     }
     lastBtn2 = reading2;
 
-    // ==========================================
-    // BUTTON 3 LOGIC (Scene Controller)
-    // ==========================================
-    bool reading3 = digitalRead(BUTTON_3_PIN);
-    if (reading3 != lastBtn3) debounceTime3 = currentMillis;
-    if ((currentMillis - debounceTime3) > debounceDelay && reading3 != button3State) {
-        button3State = reading3;
-        if (button3State == LOW && !isExecuting) {
-            isExecuting = true;
-            digitalWrite(STATUS_LED_PIN, HIGH); // <--- STATUS LED ON
-            sceneState = !sceneState; 
-            Serial.printf("\n--- B3 PRESSED: %s ---\n", sceneState ? "WORK MODE" : "AMBIENT MODE");
+    // --- BUTTON 2 BACKGROUND QUEUE ---
+    if ((!b2_b1_ok || !b2_b2_ok || !b2_b3_ok) && b2_retries < 25) {
+        if (currentMillis - b2_lastRetry >= 500) {
+            b2_lastRetry = currentMillis;
+            b2_retries++;
             
+            if (!b2_b1_ok) { b2_b1_ok = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2); if (b2_b1_ok) delay(CASCADE_DELAY); }
+            if (!b2_b2_ok) { b2_b2_ok = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2); if (b2_b2_ok) delay(CASCADE_DELAY); }
+            if (!b2_b3_ok) { b2_b3_ok = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2); if (b2_b3_ok) delay(CASCADE_DELAY); }
+
+            if (b2_b1_ok && b2_b2_ok && b2_b3_ok) {
+                digitalWrite(STATUS_LED_PIN, LOW);
+            } else if (b2_retries >= 25) {
+                flashFailure();
+            }
+        }
+    }
+
+
+    // --- BUTTON 3 TRIGGER (Scenes) ---
+    bool reading3 = digitalRead(BUTTON_3_PIN);
+    if (reading3 != lastBtn3) dbTime3 = currentMillis;
+    if ((currentMillis - dbTime3) > debounceDelay && reading3 != btn3State) {
+        btn3State = reading3;
+        if (btn3State == LOW) {
+            sceneState = !sceneState;
+            Serial.printf("\n--- B3 Tapped: Forcing %s ---\n", sceneState ? "WORK MODE" : "AMBIENT MODE");
+            
+            b3_c1_ok = b3_c2_ok = b3_c3_ok = b3_c4_ok = b3_c5_ok = false;
+            b3_retries = 0;
+            b3_lastRetry = 0;
+            digitalWrite(STATUS_LED_PIN, HIGH);
+        }
+    }
+    lastBtn3 = reading3;
+
+    // --- BUTTON 3 BACKGROUND QUEUE ---
+    if ((!b3_c1_ok || !b3_c2_ok || !b3_c3_ok || !b3_c4_ok || !b3_c5_ok) && b3_retries < 25) {
+        if (currentMillis - b3_lastRetry >= 500) {
+            b3_lastRetry = currentMillis;
+            b3_retries++;
+
             String tuyaScene = sceneState ? "\"20\":true,\"21\":\"white\",\"22\":1000,\"23\":0" 
                                           : "\"20\":true,\"21\":\"colour\",\"24\":\"00F003e803e8\"";
-            
             uint8_t r = sceneState ? 255 : 0;
             uint8_t g = sceneState ? 214 : 0;
             uint8_t b = sceneState ? 170 : 255;
 
-            bool c1 = setTuyaBulbColor(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, tuyaScene); if(c1) delay(CASCADE_DELAY);
-            bool c2 = setTuyaBulbColor(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, tuyaScene); if(c2) delay(CASCADE_DELAY);
-            bool c3 = setTuyaBulbColor(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, tuyaScene); if(c3) delay(CASCADE_DELAY);
-            bool c4 = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);                             if(c4) delay(CASCADE_DELAY);
-            bool c5 = setGoveeColor(GOVEE_BARS_MAC, r, g, b);                              if(c5) delay(CASCADE_DELAY);
-            
-            int retries = 0;
-            while ((!c1 || !c2 || !c3 || !c4 || !c5) && retries < 25) {
-                retries++;
-                Serial.printf("\n--- SCENE RETRY SWEEP %d ---\n", retries);
-                if (!c1) c1 = setTuyaBulbColor(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, tuyaScene);
-                if (!c2) c2 = setTuyaBulbColor(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, tuyaScene);
-                if (!c3) c3 = setTuyaBulbColor(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, tuyaScene);
-                if (!c4) c4 = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);
-                if (!c5) c5 = setGoveeColor(GOVEE_BARS_MAC, r, g, b);
-                if (!c1 || !c2 || !c3 || !c4 || !c5) delay(500); 
-            }
+            if (!b3_c1_ok) { b3_c1_ok = setTuyaBulbColor(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, tuyaScene); if (b3_c1_ok) delay(CASCADE_DELAY); }
+            if (!b3_c2_ok) { b3_c2_ok = setTuyaBulbColor(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, tuyaScene); if (b3_c2_ok) delay(CASCADE_DELAY); }
+            if (!b3_c3_ok) { b3_c3_ok = setTuyaBulbColor(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, tuyaScene); if (b3_c3_ok) delay(CASCADE_DELAY); }
+            if (!b3_c4_ok) { b3_c4_ok = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);                             if (b3_c4_ok) delay(CASCADE_DELAY); }
+            if (!b3_c5_ok) { b3_c5_ok = setGoveeColor(GOVEE_BARS_MAC, r, g, b);                              if (b3_c5_ok) delay(CASCADE_DELAY); }
 
-            if (!c1 || !c2 || !c3 || !c4 || !c5) {
-                Serial.println("--- TRANSMISSION FAILED (MAX RETRIES REACHED) ---");
-                flashFailure(); // <--- BLINK 10 TIMES ON FAILURE
-            } else {
-                Serial.println("--- TRANSMISSION COMPLETE ---");
-                digitalWrite(STATUS_LED_PIN, LOW); // <--- LED OFF ON SUCCESS
+            if (b3_c1_ok && b3_c2_ok && b3_c3_ok && b3_c4_ok && b3_c5_ok) {
+                digitalWrite(STATUS_LED_PIN, LOW);
+            } else if (b3_retries >= 25) {
+                flashFailure();
             }
-            isExecuting = false;
         }
     }
-    lastBtn3 = reading3;
 }
