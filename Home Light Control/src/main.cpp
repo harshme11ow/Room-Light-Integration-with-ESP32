@@ -9,7 +9,7 @@ const char* password = "recentnews374";
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" // <--- Replace with your Lightbars' MAC
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" // <--- Replace with your Lightbars' MAC
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -17,10 +17,15 @@ static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
 uint8_t powerOn[]  = {0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33};
 uint8_t powerOff[] = {0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32};
 
-// --- Feit Tuya Wi-Fi Credentials ---
-IPAddress tuyaIP(192, 168, 1, 31);
-const char* tuyaDeviceID = "ebf9fa6de05d0ece56ecfw";
-const char* tuyaLocalKey = "6n~O6wS-Hzk+sPyj";
+// --- Feit Tuya Plug 1 Configuration ---
+IPAddress tuyaIP1(192, 168, 1, 31);
+const char* tuyaID1 = "ebf9fa6de05d0ece56ecfw";
+const char* tuyaKey1 = "6n~O6wS-Hzk+sPyj";
+
+// --- Feit Tuya Plug 2 Configuration ---
+IPAddress tuyaIP2(192, 168, 1, 33);
+const char* tuyaID2 = "ebb7d988301f646e51npsj";
+const char* tuyaKey2 = "MGH`N!_hX8gP|wkv";
 
 // --- Button Configuration ---
 #define BUTTON_PIN 4
@@ -46,17 +51,17 @@ uint32_t getTuyaCRC(const uint8_t *data, size_t length) {
     return ~crc;
 }
 
-// --- Raw Tuya V3.3 TCP Sender (Returns bool success status) ---
-bool toggleTuyaPlug(bool state) {
+// --- Reusable Raw Tuya V3.3 TCP Sender ---
+bool toggleTuyaPlug(IPAddress ip, const char* devId, const char* localKey, bool state) {
     WiFiClient client;
     client.setTimeout(1); 
     
-    if (!client.connect(tuyaIP, 6668, 1000)) {
-        Serial.println("Tuya TCP connection failed (Timeout).");
+    if (!client.connect(ip, 6668, 1000)) {
+        Serial.printf("Tuya TCP connection failed for device %s (Timeout).\n", devId);
         return false;
     }
 
-    String json = "{\"devId\":\"" + String(tuyaDeviceID) + "\",\"uid\":\"\",\"t\":\"1600000000\",\"dps\":{\"1\":";
+    String json = "{\"devId\":\"" + String(devId) + "\",\"uid\":\"\",\"t\":\"1600000000\",\"dps\":{\"1\":";
     json += (state ? "true" : "false");
     json += "}}";
 
@@ -70,7 +75,7 @@ bool toggleTuyaPlug(bool state) {
     uint8_t ciphertext[paddedLen];
     mbedtls_aes_context aes;
     mbedtls_aes_init(&aes);
-    mbedtls_aes_setkey_enc(&aes, (const uint8_t*)tuyaLocalKey, 128);
+    mbedtls_aes_setkey_enc(&aes, (const uint8_t*)localKey, 128);
     for (size_t i = 0; i < paddedLen; i += 16) {
         mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, plaintext + i, ciphertext + i);
     }
@@ -98,11 +103,11 @@ bool toggleTuyaPlug(bool state) {
 
     client.write(packet, totalSize);
     client.stop();
-    Serial.println("Feit plug toggled natively over TCP!");
+    Serial.printf("Feit plug (%s) toggled natively over TCP!\n", devId);
     return true;
 }
 
-// --- Reusable Govee BLE Sender (Returns bool success status) ---
+// --- Reusable Govee BLE Sender ---
 bool toggleGoveeBLE(const char* macAddress, bool state) {
     BLEAddress goveeAddress(macAddress, 1);
     NimBLEClient* pClient = NimBLEDevice::createClient();
@@ -166,26 +171,19 @@ void loop() {
                 Serial.printf("\n--- COMMANDING ALL DEVICES: %s ---\n", globalState ? "ON" : "OFF");
                 
                 // Pass 1: Try firing all devices concurrently
-                bool plugOk  = toggleTuyaPlug(globalState);
+                bool plug1Ok = toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
+                bool plug2Ok = toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
                 bool stripOk = toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
                 bool barsOk  = toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
                 
                 // Pass 2: Retry queue for any devices that timed out
-                if (!plugOk || !stripOk || !barsOk) {
+                if (!plug1Ok || !plug2Ok || !stripOk || !barsOk) {
                     Serial.println("--- RETRYING FAILED DEVICES ---");
                     
-                    if (!plugOk) {
-                        Serial.println("Retrying Tuya Plug...");
-                        toggleTuyaPlug(globalState);
-                    }
-                    if (!stripOk) {
-                        Serial.println("Retrying Govee Strip...");
-                        toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
-                    }
-                    if (!barsOk) {
-                        Serial.println("Retrying Govee Lightbars...");
-                        toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
-                    }
+                    if (!plug1Ok) toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
+                    if (!plug2Ok) toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
+                    if (!stripOk) toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
+                    if (!barsOk)  toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
                 }
                 
                 isExecuting = false;
