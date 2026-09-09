@@ -50,6 +50,10 @@ IPAddress tuyaBulbIP3(192, 168, 1, 34);
 const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; 
 const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
 
+IPAddress tuyaBulbIP4(192, 168, 1, 37);
+const char* tuyaBulbID4 = "YOUR_TV_STAND_ID_HERE"; // <--- REPLACE THIS
+const char* tuyaBulbKey4 = "YOUR_TV_STAND_KEY_HERE"; // <--- REPLACE THIS
+
 // --- Hardware Button Configuration ---
 #define BUTTON_1_PIN 4   
 #define BUTTON_2_PIN 5   
@@ -63,11 +67,11 @@ bool b1_p1_ok = true, b1_p2_ok = true, b1_s1_ok = true, b1_s2_ok = true;
 int b1_retries = 25; unsigned long b1_lastRetry = 0;
 
 bool globalState2 = false; bool btn2State = HIGH; bool lastBtn2 = HIGH; unsigned long dbTime2 = 0;
-bool b2_b1_ok = true, b2_b2_ok = true, b2_b3_ok = true;
+bool b2_b1_ok = true, b2_b2_ok = true, b2_b3_ok = true, b2_b4_ok = true;
 int b2_retries = 25; unsigned long b2_lastRetry = 0;
 
 bool sceneState = false; bool btn3State = HIGH; bool lastBtn3 = HIGH; unsigned long dbTime3 = 0;
-bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true;
+bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true, b3_c6_ok = true;
 int b3_retries = 25; unsigned long b3_lastRetry = 0;
 
 // =========================================================================
@@ -304,7 +308,6 @@ void loop() {
         }
     }
 
-
     // --- BUTTON 2 TRIGGER (Bulbs) ---
     bool reading2 = digitalRead(BUTTON_2_PIN);
     if (reading2 != lastBtn2) dbTime2 = currentMillis;
@@ -312,7 +315,7 @@ void loop() {
         btn2State = reading2;
         if (btn2State == LOW) {
             globalState2 = !globalState2;
-            b2_b1_ok = b2_b2_ok = b2_b3_ok = false;
+            b2_b1_ok = b2_b2_ok = b2_b3_ok = b2_b4_ok = false;
             b2_retries = 0; b2_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
             
@@ -322,7 +325,7 @@ void loop() {
     lastBtn2 = reading2;
 
     // --- BUTTON 2 BACKGROUND QUEUE ---
-    if ((!b2_b1_ok || !b2_b2_ok || !b2_b3_ok) && b2_retries < 25) {
+    if ((!b2_b1_ok || !b2_b2_ok || !b2_b3_ok || !b2_b4_ok) && b2_retries < 25) {
         if (currentMillis - b2_lastRetry >= 500) {
             b2_lastRetry = currentMillis;
             b2_retries++;
@@ -332,8 +335,9 @@ void loop() {
             if (!b2_b1_ok) { b2_b1_ok = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2); if (b2_b1_ok) delay(CASCADE_DELAY); }
             if (!b2_b2_ok) { b2_b2_ok = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2); if (b2_b2_ok) delay(CASCADE_DELAY); }
             if (!b2_b3_ok) { b2_b3_ok = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2); if (b2_b3_ok) delay(CASCADE_DELAY); }
+            if (!b2_b4_ok) { b2_b4_ok = toggleTuyaBulb(tuyaBulbIP4, tuyaBulbID4, tuyaBulbKey4, globalState2); if (b2_b4_ok) delay(CASCADE_DELAY); }
 
-            if (b2_b1_ok && b2_b2_ok && b2_b3_ok) {
+            if (b2_b1_ok && b2_b2_ok && b2_b3_ok && b2_b4_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
                 updateOLED("SMART BULBS", "TX Complete!", "Status: " + String(globalState2 ? "ON" : "OFF"));
             } else if (b2_retries >= 25) {
@@ -343,7 +347,6 @@ void loop() {
         }
     }
 
-
     // --- BUTTON 3 TRIGGER (Scenes) ---
     bool reading3 = digitalRead(BUTTON_3_PIN);
     if (reading3 != lastBtn3) dbTime3 = currentMillis;
@@ -351,7 +354,7 @@ void loop() {
         btn3State = reading3;
         if (btn3State == LOW) {
             sceneState = !sceneState;
-            b3_c1_ok = b3_c2_ok = b3_c3_ok = b3_c4_ok = b3_c5_ok = false;
+            b3_c1_ok = b3_c2_ok = b3_c3_ok = b3_c4_ok = b3_c5_ok = b3_c6_ok = false;
             b3_retries = 0; b3_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
             
@@ -361,7 +364,7 @@ void loop() {
     lastBtn3 = reading3;
 
     // --- BUTTON 3 BACKGROUND QUEUE ---
-    if ((!b3_c1_ok || !b3_c2_ok || !b3_c3_ok || !b3_c4_ok || !b3_c5_ok) && b3_retries < 25) {
+    if ((!b3_c1_ok || !b3_c2_ok || !b3_c3_ok || !b3_c4_ok || !b3_c5_ok || !b3_c6_ok) && b3_retries < 25) {
         if (currentMillis - b3_lastRetry >= 500) {
             b3_lastRetry = currentMillis;
             b3_retries++;
@@ -377,10 +380,11 @@ void loop() {
             if (!b3_c1_ok) { b3_c1_ok = setTuyaBulbColor(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, tuyaScene); if (b3_c1_ok) delay(CASCADE_DELAY); }
             if (!b3_c2_ok) { b3_c2_ok = setTuyaBulbColor(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, tuyaScene); if (b3_c2_ok) delay(CASCADE_DELAY); }
             if (!b3_c3_ok) { b3_c3_ok = setTuyaBulbColor(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, tuyaScene); if (b3_c3_ok) delay(CASCADE_DELAY); }
-            if (!b3_c4_ok) { b3_c4_ok = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);                             if (b3_c4_ok) delay(CASCADE_DELAY); }
-            if (!b3_c5_ok) { b3_c5_ok = setGoveeColor(GOVEE_BARS_MAC, r, g, b);                              if (b3_c5_ok) delay(CASCADE_DELAY); }
+            if (!b3_c4_ok) { b3_c4_ok = setTuyaBulbColor(tuyaBulbIP4, tuyaBulbID4, tuyaBulbKey4, tuyaScene); if (b3_c4_ok) delay(CASCADE_DELAY); }
+            if (!b3_c5_ok) { b3_c5_ok = setGoveeColor(GOVEE_STRIP_MAC, r, g, b);                             if (b3_c5_ok) delay(CASCADE_DELAY); }
+            if (!b3_c6_ok) { b3_c6_ok = setGoveeColor(GOVEE_BARS_MAC, r, g, b);                              if (b3_c6_ok) delay(CASCADE_DELAY); }
 
-            if (b3_c1_ok && b3_c2_ok && b3_c3_ok && b3_c4_ok && b3_c5_ok) {
+            if (b3_c1_ok && b3_c2_ok && b3_c3_ok && b3_c4_ok && b3_c5_ok && b3_c6_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
                 updateOLED("SCENE CONTROL", "TX Complete!", "Status: " + String(sceneState ? "WORK MODE" : "AMBIENT MODE"));
             } else if (b3_retries >= 25) {
