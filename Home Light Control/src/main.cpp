@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -371,9 +371,12 @@ void loop() {
 
             if (b3_retries > 1) updateOLED("SCENE CONTROL", "Network degraded.", "Retry Sweep: " + String(b3_retries));
 
+            // Purple Tuya Payload Hex = 0118 (Hue 280), 03e8 (Sat 100%), 03e8 (Val 100%)
             String tuyaScene = sceneState ? "\"20\":true,\"21\":\"white\",\"22\":1000,\"23\":0" 
-                                          : "\"20\":true,\"21\":\"colour\",\"24\":\"00F003e803e8\"";
-            uint8_t r = sceneState ? 255 : 0;
+                                          : "\"20\":true,\"21\":\"colour\",\"24\":\"011803e803e8\"";
+            
+            // Purple Govee Payload (RGB)
+            uint8_t r = sceneState ? 255 : 150;
             uint8_t g = sceneState ? 214 : 0;
             uint8_t b = sceneState ? 170 : 255;
 
