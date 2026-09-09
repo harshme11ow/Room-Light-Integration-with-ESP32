@@ -3,16 +3,24 @@
 #include <NimBLEDevice.h>
 #include <mbedtls/aes.h> 
 
+// --- OLED Display Libraries ---
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
 // --- Wi-Fi Credentials ---
 const char* ssid = "MySpectrumWiFi02-2G";
 const char* password = "recentnews374";
 
-// --- Status LED ---
-#define STATUS_LED_PIN 2 // Default onboard LED for ESP32
+#define STATUS_LED_PIN 2
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
+#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -20,51 +28,79 @@ static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
 uint8_t powerOn[]  = {0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33};
 uint8_t powerOff[] = {0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32};
 
-// --- Feit Tuya Plugs Config ---
+// --- Feit Tuya Plugs ---
 IPAddress tuyaPlugIP1(192, 168, 1, 31);
-const char* tuyaPlugID1 = "ebf9fa6de05d0ece56ecfw"; // Shelf Lights
+const char* tuyaPlugID1 = "ebf9fa6de05d0ece56ecfw";
 const char* tuyaPlugKey1 = "6n~O6wS-Hzk+sPyj";
 
 IPAddress tuyaPlugIP2(192, 168, 1, 33);
-const char* tuyaPlugID2 = "ebb7d988301f646e51npsj"; // Lamp Light
+const char* tuyaPlugID2 = "ebb7d988301f646e51npsj";
 const char* tuyaPlugKey2 = "MGH`N!_hX8gP|wkv";
 
-// --- Feit Tuya Bulbs Config ---
+// --- Feit Tuya Bulbs ---
 IPAddress tuyaBulbIP1(192, 168, 1, 36);
-const char* tuyaBulbID1 = "eb4f2a34b49a57791cdam6"; // Dining Room 1
+const char* tuyaBulbID1 = "eb4f2a34b49a57791cdam6"; 
 const char* tuyaBulbKey1 = "*]0X4r^dyn6stGjr";
 
 IPAddress tuyaBulbIP2(192, 168, 1, 35);
-const char* tuyaBulbID2 = "eb8fd032caddb07e315rom"; // Dining Room 3
+const char* tuyaBulbID2 = "eb8fd032caddb07e315rom"; 
 const char* tuyaBulbKey2 = "eUD.dUzP^Mu`F#K>";
 
 IPAddress tuyaBulbIP3(192, 168, 1, 34);
-const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; // Tall Barlast 1
+const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; 
 const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
 
 // --- Hardware Button Configuration ---
-#define BUTTON_1_PIN 4   // Plugs & Govee ON/OFF
-#define BUTTON_2_PIN 5   // Smart Bulbs ON/OFF
-#define BUTTON_3_PIN 18  // Scene Controller
+#define BUTTON_1_PIN 4   
+#define BUTTON_2_PIN 5   
+#define BUTTON_3_PIN 18  
 #define CASCADE_DELAY 300 
 
 const unsigned long debounceDelay = 50;
 
-// Button 1 States & Queue
 bool globalState1 = false; bool btn1State = HIGH; bool lastBtn1 = HIGH; unsigned long dbTime1 = 0;
 bool b1_p1_ok = true, b1_p2_ok = true, b1_s1_ok = true, b1_s2_ok = true;
 int b1_retries = 25; unsigned long b1_lastRetry = 0;
 
-// Button 2 States & Queue
 bool globalState2 = false; bool btn2State = HIGH; bool lastBtn2 = HIGH; unsigned long dbTime2 = 0;
 bool b2_b1_ok = true, b2_b2_ok = true, b2_b3_ok = true;
 int b2_retries = 25; unsigned long b2_lastRetry = 0;
 
-// Button 3 States & Queue
 bool sceneState = false; bool btn3State = HIGH; bool lastBtn3 = HIGH; unsigned long dbTime3 = 0;
 bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true;
 int b3_retries = 25; unsigned long b3_lastRetry = 0;
 
+// =========================================================================
+// OLED UI ENGINE
+// =========================================================================
+unsigned long lastOLEDUpdate = 0;
+
+void updateOLED(String title, String line1, String line2, bool isIdle = false) {
+    if (!isIdle) lastOLEDUpdate = millis();
+    
+    display.clearDisplay();
+    
+    // Header Background
+    display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
+    display.setTextSize(1);
+    
+    // Center the Title Text inside the Header
+    int16_t x1, y1;
+    uint16_t w, h;
+    display.getTextBounds(title, 0, 0, &x1, &y1, &w, &h);
+    display.setTextColor(SSD1306_BLACK);
+    display.setCursor((128 - w) / 2, 3);
+    display.print(title);
+    
+    // Body Text
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 22);
+    display.print(line1);
+    display.setCursor(0, 36);
+    display.print(line2);
+    
+    display.display();
+}
 
 // =========================================================================
 // CORE PRIMITIVES
@@ -176,15 +212,10 @@ bool setGoveeColor(const char* mac, uint8_t r, uint8_t g, uint8_t b) {
     return sendGoveeBLE(mac, packet, 20);
 }
 
-// =========================================================================
-// FAILURE LED HELPER
-// =========================================================================
 void flashFailure() {
     for (int i = 0; i < 10; i++) {
-        digitalWrite(STATUS_LED_PIN, HIGH);
-        delay(75);
-        digitalWrite(STATUS_LED_PIN, LOW);
-        delay(75);
+        digitalWrite(STATUS_LED_PIN, HIGH); delay(75);
+        digitalWrite(STATUS_LED_PIN, LOW); delay(75);
     }
 }
 
@@ -199,10 +230,16 @@ void setup() {
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
     
-    Serial.print("Connecting to Wi-Fi");
+    // Initialize OLED Display
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("SSD1306 OLED allocation failed. Running headless."));
+    }
+    updateOLED("BOOT SEQUENCE", "Connecting Wi-Fi...", "");
+
     WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-    Serial.println("\nWi-Fi Connected!");
+    while (WiFi.status() != WL_CONNECTED) { delay(500); }
+    
+    updateOLED("BOOT SEQUENCE", "Wi-Fi Connected!", "Init Radio...");
 
     for (int i = 0; i < 3; i++) {
         digitalWrite(STATUS_LED_PIN, HIGH); delay(200);
@@ -210,7 +247,10 @@ void setup() {
     }
 
     NimBLEDevice::init("");
-    Serial.println("ESP32 Ready. Press buttons to trigger lights.");
+    
+    // Go to Idle Dashboard
+    updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
+    lastOLEDUpdate = 0;
 }
 
 // =========================================================================
@@ -219,6 +259,12 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
     
+    // 15-Second Idle Timeout to clear the screen
+    if (currentMillis - lastOLEDUpdate > 15000 && lastOLEDUpdate != 0) {
+        updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
+        lastOLEDUpdate = 0; 
+    }
+
     // --- BUTTON 1 TRIGGER (Plugs & Govee) ---
     bool reading1 = digitalRead(BUTTON_1_PIN);
     if (reading1 != lastBtn1) dbTime1 = currentMillis;
@@ -226,13 +272,11 @@ void loop() {
         btn1State = reading1;
         if (btn1State == LOW) {
             globalState1 = !globalState1;
-            Serial.printf("\n--- B1 Tapped: Forcing %s ---\n", globalState1 ? "ON" : "OFF");
-            
-            // Instantly abort any active retries and reset the queue
             b1_p1_ok = b1_p2_ok = b1_s1_ok = b1_s2_ok = false;
-            b1_retries = 0;
-            b1_lastRetry = 0; // Forces immediate execution on next tick
+            b1_retries = 0; b1_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
+            
+            updateOLED("PLUGS & STRIPS", "Target: " + String(globalState1 ? "ON" : "OFF"), "Transmitting...");
         }
     }
     lastBtn1 = reading1;
@@ -243,15 +287,19 @@ void loop() {
             b1_lastRetry = currentMillis;
             b1_retries++;
             
+            if (b1_retries > 1) updateOLED("PLUGS & STRIPS", "Network degraded.", "Retry Sweep: " + String(b1_retries));
+            
             if (!b1_p1_ok) { b1_p1_ok = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1); if (b1_p1_ok) delay(CASCADE_DELAY); }
             if (!b1_p2_ok) { b1_p2_ok = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1); if (b1_p2_ok) delay(CASCADE_DELAY); }
             if (!b1_s1_ok) { b1_s1_ok = toggleGovee(GOVEE_STRIP_MAC, globalState1); if (b1_s1_ok) delay(CASCADE_DELAY); }
             if (!b1_s2_ok) { b1_s2_ok = toggleGovee(GOVEE_BARS_MAC, globalState1); if (b1_s2_ok) delay(CASCADE_DELAY); }
 
             if (b1_p1_ok && b1_p2_ok && b1_s1_ok && b1_s2_ok) {
-                digitalWrite(STATUS_LED_PIN, LOW); // Success
+                digitalWrite(STATUS_LED_PIN, LOW);
+                updateOLED("PLUGS & STRIPS", "TX Complete!", "Status: " + String(globalState1 ? "ON" : "OFF"));
             } else if (b1_retries >= 25) {
-                flashFailure(); // Failed completely
+                flashFailure();
+                updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
             }
         }
     }
@@ -264,12 +312,11 @@ void loop() {
         btn2State = reading2;
         if (btn2State == LOW) {
             globalState2 = !globalState2;
-            Serial.printf("\n--- B2 Tapped: Forcing %s ---\n", globalState2 ? "ON" : "OFF");
-            
             b2_b1_ok = b2_b2_ok = b2_b3_ok = false;
-            b2_retries = 0;
-            b2_lastRetry = 0;
+            b2_retries = 0; b2_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
+            
+            updateOLED("SMART BULBS", "Target: " + String(globalState2 ? "ON" : "OFF"), "Transmitting...");
         }
     }
     lastBtn2 = reading2;
@@ -280,14 +327,18 @@ void loop() {
             b2_lastRetry = currentMillis;
             b2_retries++;
             
+            if (b2_retries > 1) updateOLED("SMART BULBS", "Network degraded.", "Retry Sweep: " + String(b2_retries));
+            
             if (!b2_b1_ok) { b2_b1_ok = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState2); if (b2_b1_ok) delay(CASCADE_DELAY); }
             if (!b2_b2_ok) { b2_b2_ok = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState2); if (b2_b2_ok) delay(CASCADE_DELAY); }
             if (!b2_b3_ok) { b2_b3_ok = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState2); if (b2_b3_ok) delay(CASCADE_DELAY); }
 
             if (b2_b1_ok && b2_b2_ok && b2_b3_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
+                updateOLED("SMART BULBS", "TX Complete!", "Status: " + String(globalState2 ? "ON" : "OFF"));
             } else if (b2_retries >= 25) {
                 flashFailure();
+                updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
             }
         }
     }
@@ -300,12 +351,11 @@ void loop() {
         btn3State = reading3;
         if (btn3State == LOW) {
             sceneState = !sceneState;
-            Serial.printf("\n--- B3 Tapped: Forcing %s ---\n", sceneState ? "WORK MODE" : "AMBIENT MODE");
-            
             b3_c1_ok = b3_c2_ok = b3_c3_ok = b3_c4_ok = b3_c5_ok = false;
-            b3_retries = 0;
-            b3_lastRetry = 0;
+            b3_retries = 0; b3_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
+            
+            updateOLED("SCENE CONTROL", "Target: " + String(sceneState ? "WORK MODE" : "AMBIENT MODE"), "Transmitting...");
         }
     }
     lastBtn3 = reading3;
@@ -315,6 +365,8 @@ void loop() {
         if (currentMillis - b3_lastRetry >= 500) {
             b3_lastRetry = currentMillis;
             b3_retries++;
+
+            if (b3_retries > 1) updateOLED("SCENE CONTROL", "Network degraded.", "Retry Sweep: " + String(b3_retries));
 
             String tuyaScene = sceneState ? "\"20\":true,\"21\":\"white\",\"22\":1000,\"23\":0" 
                                           : "\"20\":true,\"21\":\"colour\",\"24\":\"00F003e803e8\"";
@@ -330,8 +382,10 @@ void loop() {
 
             if (b3_c1_ok && b3_c2_ok && b3_c3_ok && b3_c4_ok && b3_c5_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
+                updateOLED("SCENE CONTROL", "TX Complete!", "Status: " + String(sceneState ? "WORK MODE" : "AMBIENT MODE"));
             } else if (b3_retries >= 25) {
                 flashFailure();
+                updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
             }
         }
     }
