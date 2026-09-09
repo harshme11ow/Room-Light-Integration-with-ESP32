@@ -9,7 +9,7 @@ const char* password = "recentnews374";
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" // <--- Replace with your Lightbars' MAC
+#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -17,25 +17,27 @@ static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
 uint8_t powerOn[]  = {0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33};
 uint8_t powerOff[] = {0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32};
 
-// --- Feit Tuya Plug 1 Configuration ---
+// --- Feit Tuya Plug 1 ("Shelf Lights") ---
 IPAddress tuyaIP1(192, 168, 1, 31);
 const char* tuyaID1 = "ebf9fa6de05d0ece56ecfw";
 const char* tuyaKey1 = "6n~O6wS-Hzk+sPyj";
 
-// --- Feit Tuya Plug 2 Configuration ---
+// --- Feit Tuya Plug 2 ("Lamp Light") ---
 IPAddress tuyaIP2(192, 168, 1, 33);
 const char* tuyaID2 = "ebb7d988301f646e51npsj";
 const char* tuyaKey2 = "MGH`N!_hX8gP|wkv";
 
-// --- Button Configuration ---
+// --- Button & Effect Configuration ---
 #define BUTTON_PIN 4
+#define CASCADE_DELAY 300  // Milliseconds between each device turning on
+
 bool globalState = false; 
 bool buttonState = HIGH;
 bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 
-// Execution lock to prevent mashing while radios are busy
+// Execution lock guarantees perfectly synced ON/OFF states by ignoring button mashes
 bool isExecuting = false; 
 
 // --- Tuya Protocol Checksum Engine ---
@@ -57,7 +59,7 @@ bool toggleTuyaPlug(IPAddress ip, const char* devId, const char* localKey, bool 
     client.setTimeout(1); 
     
     if (!client.connect(ip, 6668, 1000)) {
-        Serial.printf("Tuya TCP connection failed for device %s (Timeout).\n", devId);
+        Serial.printf("Tuya TCP connection failed for device %s.\n", devId);
         return false;
     }
 
@@ -103,7 +105,6 @@ bool toggleTuyaPlug(IPAddress ip, const char* devId, const char* localKey, bool 
 
     client.write(packet, totalSize);
     client.stop();
-    Serial.printf("Feit plug (%s) toggled natively over TCP!\n", devId);
     return true;
 }
 
@@ -124,14 +125,13 @@ bool toggleGoveeBLE(const char* macAddress, bool state) {
                 } else {
                     pChar->writeValue(powerOff, sizeof(powerOff), false);
                 }
-                Serial.printf("Govee device at %s toggled over BLE!\n", macAddress);
                 success = true;
             }
         }
         delay(50);
         pClient->disconnect();
     } else {
-        Serial.printf("Govee BLE at %s unreachable (Timeout).\n", macAddress);
+        Serial.printf("Govee BLE at %s unreachable.\n", macAddress);
     }
     NimBLEDevice::deleteClient(pClient);
     return success;
@@ -170,24 +170,40 @@ void loop() {
                 
                 Serial.printf("\n--- COMMANDING ALL DEVICES: %s ---\n", globalState ? "ON" : "OFF");
                 
-                // Pass 1: Try firing all devices concurrently
-                bool plug1Ok = toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
-                bool plug2Ok = toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
-                bool stripOk = toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
-                bool barsOk  = toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
+                bool plug1Ok = false, plug2Ok = false, stripOk = false, barsOk = false;
                 
-                // Pass 2: Retry queue for any devices that timed out
-                if (!plug1Ok || !plug2Ok || !stripOk || !barsOk) {
-                    Serial.println("--- RETRYING FAILED DEVICES ---");
+                // PASS 1: Sequential Visual Cascade
+                plug1Ok = toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
+                if (plug1Ok) delay(CASCADE_DELAY);
+                
+                plug2Ok = toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
+                if (plug2Ok) delay(CASCADE_DELAY);
+                
+                stripOk = toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
+                if (stripOk) delay(CASCADE_DELAY);
+                
+                barsOk = toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
+                if (barsOk) delay(CASCADE_DELAY);
+                
+                // RETRY QUEUE: Loop persistently through failed devices 
+                int retryCount = 0;
+                while ((!plug1Ok || !plug2Ok || !stripOk || !barsOk) && retryCount < 25) {
+                    retryCount++;
+                    Serial.printf("\n--- RETRY SWEEP %d ---\n", retryCount);
                     
-                    if (!plug1Ok) toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
-                    if (!plug2Ok) toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
-                    if (!stripOk) toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
-                    if (!barsOk)  toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
+                    if (!plug1Ok) plug1Ok = toggleTuyaPlug(tuyaIP1, tuyaID1, tuyaKey1, globalState);
+                    if (!plug2Ok) plug2Ok = toggleTuyaPlug(tuyaIP2, tuyaID2, tuyaKey2, globalState);
+                    if (!stripOk) stripOk = toggleGoveeBLE(GOVEE_STRIP_MAC, globalState);
+                    if (!barsOk)  barsOk  = toggleGoveeBLE(GOVEE_BARS_MAC, globalState);
+                    
+                    // Pause briefly before hitting the radios again to prevent buffer lockups
+                    if (!plug1Ok || !plug2Ok || !stripOk || !barsOk) {
+                        delay(500); 
+                    }
                 }
                 
                 isExecuting = false;
-                Serial.println("--- TRANSMISSION COMPLETE ---");
+                Serial.println("--- ALL TRANSMISSIONS COMPLETE ---");
             }
         }
     }
