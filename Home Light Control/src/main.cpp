@@ -87,8 +87,8 @@ int b3_retries = 25; unsigned long b3_lastRetry = 0;
 // =========================================================================
 unsigned long lastOLEDUpdate = 0;
 
-void updateOLED(String title, String line1, String line2, bool isIdle = false) {
-    if (!isIdle) lastOLEDUpdate = millis();
+void updateOLED(String title, String line1, String line2) {
+    lastOLEDUpdate = millis(); // Reset power-saving timer
     
     display.clearDisplay();
     
@@ -258,8 +258,7 @@ void setup() {
 
     NimBLEDevice::init("");
     
-    updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
-    lastOLEDUpdate = 0;
+    updateOLED("SYSTEM READY", "All nodes synced.", "Awaiting command...");
 }
 
 // =========================================================================
@@ -268,9 +267,11 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
     
-    if (currentMillis - lastOLEDUpdate > 15000 && lastOLEDUpdate != 0) {
-        updateOLED("SYSTEM IDLE", "All nodes synced.", "Awaiting command...", true);
-        lastOLEDUpdate = 0; 
+    // --- 30-SECOND OLED POWER SAVER ---
+    if (currentMillis - lastOLEDUpdate > 30000 && lastOLEDUpdate != 0) {
+        display.clearDisplay(); // Turns off all pixels to save power & prevent burn-in
+        display.display();
+        lastOLEDUpdate = 0;     // Lock the timer so it doesn't loop endlessly
     }
 
     // --- BUTTON 1 TRIGGER (Master Control) ---
