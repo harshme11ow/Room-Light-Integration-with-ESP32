@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -59,9 +59,10 @@ const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; // TV stand lights
 const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; 
 
 // --- Hardware Button Configuration ---
-#define BUTTON_1_PIN 4   
-#define BUTTON_2_PIN 5   
-#define BUTTON_3_PIN 18  
+#define BUTTON_1_PIN 4   // Master Control
+#define BUTTON_2_PIN 5   // Smart Bulbs
+#define BUTTON_3_PIN 18  // Scene Control
+#define BUTTON_4_PIN 19  // Gaming Mode
 #define CASCADE_DELAY 300 
 
 const unsigned long debounceDelay = 50;
@@ -82,17 +83,21 @@ bool sceneState = false; bool btn3State = HIGH; bool lastBtn3 = HIGH; unsigned l
 bool b3_c1_ok = true, b3_c2_ok = true, b3_c3_ok = true, b3_c4_ok = true, b3_c5_ok = true, b3_c6_ok = true;
 int b3_retries = 25; unsigned long b3_lastRetry = 0;
 
+// Button 4 States & Queue
+bool globalState4 = false; bool btn4State = HIGH; bool lastBtn4 = HIGH; unsigned long dbTime4 = 0;
+bool b4_p1_ok = true, b4_p2_ok = true, b4_b4_ok = true; // Shelf Lights, Lamp Light, TV Stand
+int b4_retries = 25; unsigned long b4_lastRetry = 0;
+
 // =========================================================================
 // OLED UI ENGINE
 // =========================================================================
 unsigned long lastOLEDUpdate = 0;
 
 void updateOLED(String title, String line1, String line2) {
-    lastOLEDUpdate = millis(); // Reset power-saving timer
+    lastOLEDUpdate = millis(); 
     
     display.clearDisplay();
     
-    // Header Background
     display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
     display.setTextSize(1);
     
@@ -102,7 +107,6 @@ void updateOLED(String title, String line1, String line2) {
     display.setCursor((128 - w) / 2, 3);
     display.print(title);
     
-    // Body Text
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 22);
     display.print(line1);
@@ -237,10 +241,10 @@ void setup() {
     pinMode(BUTTON_1_PIN, INPUT_PULLUP);
     pinMode(BUTTON_2_PIN, INPUT_PULLUP);
     pinMode(BUTTON_3_PIN, INPUT_PULLUP);
+    pinMode(BUTTON_4_PIN, INPUT_PULLUP);
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
     
-    // Initialize OLED Display
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println(F("SSD1306 OLED allocation failed."));
     }
@@ -269,9 +273,9 @@ void loop() {
     
     // --- 30-SECOND OLED POWER SAVER ---
     if (currentMillis - lastOLEDUpdate > 30000 && lastOLEDUpdate != 0) {
-        display.clearDisplay(); // Turns off all pixels to save power & prevent burn-in
+        display.clearDisplay(); 
         display.display();
-        lastOLEDUpdate = 0;     // Lock the timer so it doesn't loop endlessly
+        lastOLEDUpdate = 0;     
     }
 
     // --- BUTTON 1 TRIGGER (Master Control) ---
@@ -281,7 +285,8 @@ void loop() {
         btn1State = reading1;
         if (btn1State == LOW) {
             globalState1 = !globalState1;
-            globalState2 = globalState1; // Sync Button 2 so bulbs don't double-toggle
+            globalState2 = globalState1; 
+            globalState4 = globalState1; // Sync Gaming mode button state as well
             
             b1_p1_ok = b1_p2_ok = b1_p3_ok = b1_s1_ok = b1_s2_ok = false;
             b1_b1_ok = b1_b2_ok = b1_b3_ok = b1_b4_ok = false;
@@ -406,6 +411,45 @@ void loop() {
                 digitalWrite(STATUS_LED_PIN, LOW);
                 updateOLED("SCENE CONTROL", "TX Complete!", "Status: " + String(sceneState ? "WORK MODE" : "AMBIENT MODE"));
             } else if (b3_retries >= 25) {
+                flashFailure();
+                updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
+            }
+        }
+    }
+
+    // --- BUTTON 4 TRIGGER (Gaming Mode / Subset) ---
+    bool reading4 = digitalRead(BUTTON_4_PIN);
+    if (reading4 != lastBtn4) dbTime4 = currentMillis;
+    if ((currentMillis - dbTime4) > debounceDelay && reading4 != btn4State) {
+        btn4State = reading4;
+        if (btn4State == LOW) {
+            globalState4 = !globalState4;
+            b4_p1_ok = b4_p2_ok = b4_b4_ok = false;
+            b4_retries = 0; b4_lastRetry = 0;
+            digitalWrite(STATUS_LED_PIN, HIGH);
+            
+            updateOLED("GAMING MODE", "Target: " + String(globalState4 ? "ON" : "OFF"), "Transmitting...");
+        }
+    }
+    lastBtn4 = reading4;
+
+    // --- BUTTON 4 BACKGROUND QUEUE ---
+    if ((!b4_p1_ok || !b4_p2_ok || !b4_b4_ok) && b4_retries < 25) {
+        if (currentMillis - b4_lastRetry >= 500) {
+            b4_lastRetry = currentMillis;
+            b4_retries++;
+            
+            if (b4_retries > 1) updateOLED("GAMING MODE", "Network degraded.", "Retry Sweep: " + String(b4_retries));
+            
+            // Toggles Shelf Lights (Plug 1), Lamp Light (Plug 2), and TV Stand Lights (Bulb 4)
+            if (!b4_p1_ok) { b4_p1_ok = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState4); if (b4_p1_ok) delay(CASCADE_DELAY); }
+            if (!b4_p2_ok) { b4_p2_ok = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState4); if (b4_p2_ok) delay(CASCADE_DELAY); }
+            if (!b4_b4_ok) { b4_b4_ok = toggleTuyaBulb(tuyaBulbIP4, tuyaBulbID4, tuyaBulbKey4, globalState4); if (b4_b4_ok) delay(CASCADE_DELAY); }
+
+            if (b4_p1_ok && b4_p2_ok && b4_b4_ok) {
+                digitalWrite(STATUS_LED_PIN, LOW);
+                updateOLED("GAMING MODE", "TX Complete!", "Status: " + String(globalState4 ? "ON" : "OFF"));
+            } else if (b4_retries >= 25) {
                 flashFailure();
                 updateOLED("ERROR!", "Max Retries Hit", "Check device power.");
             }
