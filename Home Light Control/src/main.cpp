@@ -20,7 +20,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- Govee BLE MAC Addresses ---
 #define GOVEE_STRIP_MAC "d3:21:c6:46:0d:46" 
-#define GOVEE_BARS_MAC  "e1:de:81:46:66:19" 
+#define GOVEE_BARS_MAC  "AA:BB:CC:DD:EE:FF" 
 
 static const BLEUUID serviceUUID("00010203-0405-0607-0809-0a0b0c0d1910");
 static const BLEUUID charUUID("00010203-0405-0607-0809-0a0b0c0d2b11");
@@ -30,28 +30,32 @@ uint8_t powerOff[] = {0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 
 // --- Feit Tuya Plugs ---
 IPAddress tuyaPlugIP1(192, 168, 1, 31);
-const char* tuyaPlugID1 = "ebf9fa6de05d0ece56ecfw";
+const char* tuyaPlugID1 = "ebf9fa6de05d0ece56ecfw"; // Shelf Lights
 const char* tuyaPlugKey1 = "6n~O6wS-Hzk+sPyj";
 
 IPAddress tuyaPlugIP2(192, 168, 1, 33);
-const char* tuyaPlugID2 = "ebb7d988301f646e51npsj";
+const char* tuyaPlugID2 = "ebb7d988301f646e51npsj"; // Lamp Light
 const char* tuyaPlugKey2 = "MGH`N!_hX8gP|wkv";
+
+IPAddress tuyaPlugIP3(192, 168, 1, 38);
+const char* tuyaPlugID3 = "eb1390e08784797c244bqy"; // Bedroom Lamps
+const char* tuyaPlugKey3 = "4iA^5evDX$HUy}xZ";
 
 // --- Feit Tuya Bulbs ---
 IPAddress tuyaBulbIP1(192, 168, 1, 36);
-const char* tuyaBulbID1 = "eb4f2a34b49a57791cdam6"; 
+const char* tuyaBulbID1 = "eb4f2a34b49a57791cdam6"; // Dining Room 1
 const char* tuyaBulbKey1 = "*]0X4r^dyn6stGjr";
 
 IPAddress tuyaBulbIP2(192, 168, 1, 35);
-const char* tuyaBulbID2 = "eb8fd032caddb07e315rom"; 
+const char* tuyaBulbID2 = "eb8fd032caddb07e315rom"; // Dining Room 3
 const char* tuyaBulbKey2 = "eUD.dUzP^Mu`F#K>";
 
 IPAddress tuyaBulbIP3(192, 168, 1, 34);
-const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; 
+const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; // Tall Barlast 1
 const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
 
 IPAddress tuyaBulbIP4(192, 168, 1, 37);
-const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; 
+const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; // TV stand lights
 const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; 
 
 // --- Hardware Button Configuration ---
@@ -62,9 +66,9 @@ const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH";
 
 const unsigned long debounceDelay = 50;
 
-// Button 1 States & Queue (Now includes all 4 bulbs)
+// Button 1 States & Queue
 bool globalState1 = false; bool btn1State = HIGH; bool lastBtn1 = HIGH; unsigned long dbTime1 = 0;
-bool b1_p1_ok = true, b1_p2_ok = true, b1_s1_ok = true, b1_s2_ok = true;
+bool b1_p1_ok = true, b1_p2_ok = true, b1_p3_ok = true, b1_s1_ok = true, b1_s2_ok = true;
 bool b1_b1_ok = true, b1_b2_ok = true, b1_b3_ok = true, b1_b4_ok = true;
 int b1_retries = 25; unsigned long b1_lastRetry = 0;
 
@@ -278,7 +282,7 @@ void loop() {
             globalState1 = !globalState1;
             globalState2 = globalState1; // Sync Button 2 so bulbs don't double-toggle
             
-            b1_p1_ok = b1_p2_ok = b1_s1_ok = b1_s2_ok = false;
+            b1_p1_ok = b1_p2_ok = b1_p3_ok = b1_s1_ok = b1_s2_ok = false;
             b1_b1_ok = b1_b2_ok = b1_b3_ok = b1_b4_ok = false;
             b1_retries = 0; b1_lastRetry = 0;
             digitalWrite(STATUS_LED_PIN, HIGH);
@@ -289,7 +293,7 @@ void loop() {
     lastBtn1 = reading1;
 
     // --- BUTTON 1 BACKGROUND QUEUE ---
-    if ((!b1_p1_ok || !b1_p2_ok || !b1_s1_ok || !b1_s2_ok || !b1_b1_ok || !b1_b2_ok || !b1_b3_ok || !b1_b4_ok) && b1_retries < 25) {
+    if ((!b1_p1_ok || !b1_p2_ok || !b1_p3_ok || !b1_s1_ok || !b1_s2_ok || !b1_b1_ok || !b1_b2_ok || !b1_b3_ok || !b1_b4_ok) && b1_retries < 25) {
         if (currentMillis - b1_lastRetry >= 500) {
             b1_lastRetry = currentMillis;
             b1_retries++;
@@ -298,8 +302,8 @@ void loop() {
             
             if (!b1_p1_ok) { b1_p1_ok = toggleTuyaPlug(tuyaPlugIP1, tuyaPlugID1, tuyaPlugKey1, globalState1); if (b1_p1_ok) delay(CASCADE_DELAY); }
             if (!b1_p2_ok) { b1_p2_ok = toggleTuyaPlug(tuyaPlugIP2, tuyaPlugID2, tuyaPlugKey2, globalState1); if (b1_p2_ok) delay(CASCADE_DELAY); }
+            if (!b1_p3_ok) { b1_p3_ok = toggleTuyaPlug(tuyaPlugIP3, tuyaPlugID3, tuyaPlugKey3, globalState1); if (b1_p3_ok) delay(CASCADE_DELAY); }
             
-            // Newly added Bulb Commands for Button 1
             if (!b1_b1_ok) { b1_b1_ok = toggleTuyaBulb(tuyaBulbIP1, tuyaBulbID1, tuyaBulbKey1, globalState1); if (b1_b1_ok) delay(CASCADE_DELAY); }
             if (!b1_b2_ok) { b1_b2_ok = toggleTuyaBulb(tuyaBulbIP2, tuyaBulbID2, tuyaBulbKey2, globalState1); if (b1_b2_ok) delay(CASCADE_DELAY); }
             if (!b1_b3_ok) { b1_b3_ok = toggleTuyaBulb(tuyaBulbIP3, tuyaBulbID3, tuyaBulbKey3, globalState1); if (b1_b3_ok) delay(CASCADE_DELAY); }
@@ -308,7 +312,7 @@ void loop() {
             if (!b1_s1_ok) { b1_s1_ok = toggleGovee(GOVEE_STRIP_MAC, globalState1); if (b1_s1_ok) delay(CASCADE_DELAY); }
             if (!b1_s2_ok) { b1_s2_ok = toggleGovee(GOVEE_BARS_MAC, globalState1); if (b1_s2_ok) delay(CASCADE_DELAY); }
 
-            if (b1_p1_ok && b1_p2_ok && b1_s1_ok && b1_s2_ok && b1_b1_ok && b1_b2_ok && b1_b3_ok && b1_b4_ok) {
+            if (b1_p1_ok && b1_p2_ok && b1_p3_ok && b1_s1_ok && b1_s2_ok && b1_b1_ok && b1_b2_ok && b1_b3_ok && b1_b4_ok) {
                 digitalWrite(STATUS_LED_PIN, LOW);
                 updateOLED("MASTER CONTROL", "TX Complete!", "Status: " + String(globalState1 ? "ON" : "OFF"));
             } else if (b1_retries >= 25) {
