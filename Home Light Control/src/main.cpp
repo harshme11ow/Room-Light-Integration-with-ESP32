@@ -31,32 +31,32 @@ uint8_t powerOff[] = {0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 // --- Feit Tuya Plugs ---
 IPAddress tuyaPlugIP1(192, 168, 86, 98); // Shelf Lights
 const char* tuyaPlugID1 = "ebf9fa6de05d0ece56ecfw"; 
-const char* tuyaPlugKey1 = "6n~O6wS-Hzk+sPyj";
+const char* tuyaPlugKey1 = "xe0-aeL`3B/P`5e}";
 
 IPAddress tuyaPlugIP2(192, 168, 86, 95); // Lamp Light
 const char* tuyaPlugID2 = "ebb7d988301f646e51npsj"; 
-const char* tuyaPlugKey2 = "MGH`N!_hX8gP|wkv";
+const char* tuyaPlugKey2 = "Q1n1Xt=VBFJPEhd5";
 
 IPAddress tuyaPlugIP3(192, 168, 86, 99); // Bedroom Lamps
 const char* tuyaPlugID3 = "eb1390e08784797c244bqy"; 
-const char* tuyaPlugKey3 = "4iA^5evDX$HUy}xZ";
+const char* tuyaPlugKey3 = "0Ubh9U6&r[|`&Ktg";
 
 // --- Feit Tuya Bulbs ---
 IPAddress tuyaBulbIP1(192, 168, 86, 93); // Dining Room 1
 const char* tuyaBulbID1 = "eb4f2a34b49a57791cdam6"; 
-const char* tuyaBulbKey1 = "*]0X4r^dyn6stGjr";
+const char* tuyaBulbKey1 = "Pu!iegYR*s@p=kNR";
 
 IPAddress tuyaBulbIP2(192, 168, 86, 92); // Dining Room 3
 const char* tuyaBulbID2 = "eb8fd032caddb07e315rom"; 
-const char* tuyaBulbKey2 = "eUD.dUzP^Mu`F#K>";
+const char* tuyaBulbKey2 = "ag+4/mcs/JkM.5;k";
 
 IPAddress tuyaBulbIP3(192, 168, 86, 97); // Tall Barlast 1
 const char* tuyaBulbID3 = "eb446bf1e41ba6d37dudft"; 
-const char* tuyaBulbKey3 = "~]S~=}LKRa!stFL0";
+const char* tuyaBulbKey3 = "+)10B4WWwEg{UZPV";
 
 IPAddress tuyaBulbIP4(192, 168, 86, 94); // TV stand lights
 const char* tuyaBulbID4 = "eb4370caacc3241b81sknb"; 
-const char* tuyaBulbKey4 = "tB:z[5ymGy8f_=SH"; 
+const char* tuyaBulbKey4 = "y>.u1~n7R=3uOh&<"; 
 
 // --- Hardware Button Configuration ---
 #define BUTTON_1_PIN 4   // Master Control
